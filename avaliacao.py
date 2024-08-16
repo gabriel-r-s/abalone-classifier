@@ -33,14 +33,13 @@ from sklearn.naive_bayes import GaussianNB
 
 # dados = pd.read_csv("Vertebral.csv")
 # dados = pd.read_csv("Banana.csv")
-RING_THRESH = 12
 dados = pd.read_csv(
     "abalone.data",
     delimiter=",",
     header=None,
     converters={
         0: lambda s: {"M": 0.0, "F": 1.0}.get(s, 2.0),
-        8: lambda s: 1 if int(s) < RING_THRESH else 2,
+        8: lambda r: 1 if int(r) <= 8 else 2 if int(r) <= 10 else 2,
     },
 )
 dados = shuffle(dados)
