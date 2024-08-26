@@ -181,3 +181,13 @@ def eval_voting_methods(acc_voting_out):
 
 # Avaliar os métodos de votação
 eval_voting_methods(acc_voting_out)
+
+def eval_best_of_each(acc_out, acc_voting_out):
+    stat, p_value = mannwhitneyu(acc_out["MLP"], acc_voting_out["Voto Majoritário"])
+    print(f"\tMLP vs Voto Majoritário: U-statistic: {stat}, p-value: {p_value}")
+
+    if p_value < 0.05:
+        print(f"\t\tHá diferenças estatisticamente significativas entre MLP e Voto Majoritário (p < 0.05)")
+    else:
+        print(f"\t\tNão há diferenças estatisticamente significativas entre MLP e Voto Majoritário (p >= 0.05)")
+eval_best_of_each(acc_out, acc_voting_out)
