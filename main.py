@@ -1,6 +1,5 @@
 import pandas as pd
-import matplotlib.pyplot as plt
-import sys
+import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -8,13 +7,28 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import VotingClassifier
-from sklearn.utils import shuffle
+from sklearn.utils import shuffle 
+from sklearn import metrics
 from scipy.stats import kruskal, mannwhitneyu
 
-MODELS = ["KNN", "DT", "NB", "SVM", "MLP", "MV", "SV"]
+# Carregar e preparar os dados
+data = pd.read_csv('abalone.data', header=None)
+data.columns = ["Sex", "Length", "Diameter", "Height", "Whole weight", "Shucked weight", "Viscera weight", "Shell weight", "Rings"]
 
-def data_shufle(df_data):
-    df_data = shuffle(df_data)
+def classify_rings(rings):
+    if rings <= 8:
+        return 0
+    elif rings <= 10:
+        return 1
+    else:
+        return 2
+
+data['Class'] = data['Rings'].apply(classify_rings)
+data = data.drop(columns=["Rings"])
+data = pd.get_dummies(data, columns=["Sex"])
+
+def data_shuffle(df_data):
+    df_data = shuffle(df_data) 
     x = df_data.drop(columns=["Class"])
     y = df_data["Class"]
     
@@ -23,124 +37,147 @@ def data_shufle(df_data):
 
     return x_train, x_validation, x_test, y_train, y_validation, y_test
 
-def train_models():
-    data = pd.read_csv('abalone.data', header=None)
-    data.columns = ["Sex", "Length", "Diameter", "Height", "Whole weight", "Shucked weight", "Viscera weight", "Shell weight", "Rings"]
+# Loop para 20 execuções
+acc_out = pd.DataFrame(columns=["KNN", "DT", "NB", "SVM", "MLP"])
+acc_voting_out = pd.DataFrame(columns=["Soma", "Voto Majoritário", "Borda Count"])
 
-    data['Class'] = pd.cut(data['Rings'], [0, 8, 10, float("inf")], labels=[0, 1, 2])
-    data = pd.get_dummies(data, columns=["Sex"])
-
-    acc_out = pd.DataFrame(columns=MODELS)
-    for i in range(20):
-        x_train, x_validation, x_test, y_train, y_validation, y_test = data_shufle(data)
+for i in range(20):
+    x_train, x_validation, x_test, y_train, y_validation, y_test = data_shuffle(data)
+    
+    # Treinamento dos modelos
+    knn_model = KNeighborsClassifier(n_neighbors=7, weights='distance', p=2)
+    dt_model = DecisionTreeClassifier(max_depth=15, min_samples_split=4, min_samples_leaf=3)
+    nb_model = GaussianNB()
+    svm_model = SVC(kernel='rbf', C=10, gamma=0.1, probability=True)
+    mlp_model = MLPClassifier(hidden_layer_sizes=(100, 50), activation='relu', solver='adam', max_iter=500)
         
-        knn_model = KNeighborsClassifier(n_neighbors=5)
-        dt_model = DecisionTreeClassifier(max_depth=10)
-        nb_model = GaussianNB()
-        svm_model = SVC(kernel='rbf', C=1, probability=True)
-        mlp_model = MLPClassifier(hidden_layer_sizes=(100,), activation='relu', max_iter=500)
-        
-        knn_model.fit(x_train, y_train)
-        dt_model.fit(x_train, y_train)
-        nb_model.fit(x_train, y_train)
-        svm_model.fit(x_train, y_train)
-        mlp_model.fit(x_train, y_train)
-        
-        knn_acc = knn_model.score(x_test, y_test)
-        dt_acc = dt_model.score(x_test, y_test)
-        nb_acc = nb_model.score(x_test, y_test)
-        svm_acc = svm_model.score(x_test, y_test)
-        mlp_acc = mlp_model.score(x_test, y_test)
-        
-        estimators = [('KNN', knn_model), ('DT', dt_model), ('NB', nb_model), ('SVM', svm_model), ('MLP', mlp_model)]
-        
-        majority_voting = VotingClassifier(estimators, voting='hard')
-        majority_voting.fit(x_train, y_train)
-        majority_voting_acc = majority_voting.score(x_test, y_test)
-        
-        sum_voting = VotingClassifier(estimators, voting='soft')
-        sum_voting.fit(x_train, y_train)
-        sum_voting_acc = sum_voting.score(x_test, y_test)
+    knn_model.fit(x_train, y_train)
+    dt_model.fit(x_train, y_train)
+    nb_model.fit(x_train, y_train)
+    svm_model.fit(x_train, y_train)
+    mlp_model.fit(x_train, y_train)
+    
+    # Avaliação dos modelos individuais
+    knn_acc = knn_model.score(x_test, y_test)
+    dt_acc = dt_model.score(x_test, y_test)
+    nb_acc = nb_model.score(x_test, y_test)
+    svm_acc = svm_model.score(x_test, y_test)
+    mlp_acc = mlp_model.score(x_test, y_test)
+    
+    # Voting Classifiers
+    estimators = [('KNN', knn_model), ('DT', dt_model), ('NB', nb_model), ('SVM', svm_model), ('MLP', mlp_model)]
+    
+    # Majority Voting
+    majority_voting = VotingClassifier(estimators, voting='hard')
+    majority_voting.fit(x_train, y_train)
+    majority_voting_acc = majority_voting.score(x_test, y_test)
+    
+    # Sum Voting
+    sum_voting = VotingClassifier(estimators, voting='soft')
+    sum_voting.fit(x_train, y_train)
+    sum_voting_acc = sum_voting.score(x_test, y_test)
+    
+    # Borda Count
+    probas = np.array([model.predict_proba(x_test) for _, model in estimators])
+    borda_scores = probas.mean(axis=0)
+    borda_count_acc = (borda_scores.argmax(axis=1) == y_test).mean()
 
-        acc_out.loc[i] = [knn_acc, dt_acc, nb_acc, svm_acc, mlp_acc, majority_voting_acc, sum_voting_acc]
+    # Armazenar os resultados da execução
+    acc_out.loc[i] = [knn_acc, dt_acc, nb_acc, svm_acc, mlp_acc]
 
-    acc_out.to_csv("acc_out_20_exec.csv", index=False)
-    return acc_out
+    # Armazenar os resultados dos métodos de votação
+    acc_voting_out.loc[i] = [sum_voting_acc, majority_voting_acc, borda_count_acc]  
 
-def load_models(path):
-    acc_out = pd.read_csv(path)
-    return acc_out
+# Calcular a média e o desvio padrão de cada classificador
+mean_acc = acc_out.mean()
+std_acc = acc_out.std()
 
-def eval_models(acc_out):
-    mean_acc = acc_out.mean()
-    std_acc = acc_out.std()
+print("Média de Acurácia dos Modelos após 20 Execuções:")
+print(mean_acc)
 
-    print("Média de Acurácia dos Modelos após 20 Execuções:")
-    print(mean_acc)
-    fig_acc, (ax_acc_mean, ax_acc_std) = plt.subplots(2)
-    ax_acc_mean.bar(MODELS, mean_acc)
-    ax_acc_mean.set_title("Média de acurácia")
-    ax_acc_mean.set_ylim((0, 1))
+print("\nDesvio Padrão das Acurácias:")
+print(std_acc)
 
-    print("\nDesvio Padrão das Acurácias:")
-    print(std_acc)
-    ax_acc_std.bar(MODELS, mean_acc)
-    ax_acc_std.set_title("Desvio padrão de acurácia")
-    ax_acc_std.set_ylim((0, 1))
+# Gravar os resultados dos métodos de votação em um arquivo CSV
+acc_voting_out.to_csv("voting_methods_results.csv", index=False)
 
+# Salvar os resultados individuais dos classificadores
+acc_out.to_csv("acc_out_20_exec1.csv", index=False)
 
-    # Gráfico de Dispersão
-    fig_disp, ax_disp = plt.subplots()
-    print("\nGráfico de Dispersão das Acurácias:")
-    for model in MODELS:
-        ax_disp.scatter([model] * len(acc_out), acc_out[model], label=model)
+# Avaliar os classificadores
+def eval_classifiers(acc_out):
+    print("Acurácia dos classificadores")
+    print(acc_out)
 
-    ax_disp.set_title("Dispersão das Acurácias dos Modelos")
-    ax_disp.set_xlabel("Modelos")
-    ax_disp.set_ylabel("Acurácia")
-    ax_disp.set_ylim((0, 1))
-    ax_disp.grid(True)
+    print("Média de Acurácia dos Classificadores:")
+    mean_acc_classifiers = acc_out.mean()
+    print("\nDesvio Padrão das Acurácias dos Classificadores:")
+    std_acc_classifiers = acc_out.std()
 
-
-    # Teste de Kruskal-Wallis
-    print("\nKruskal-Wallis Test:")
-    stat, p_value = kruskal(*[acc_out[model] for model in MODELS])
+    # Teste de Kruskal-Wallis para classificadores
+    print("\nKruskal-Wallis Test para Classificadores:")
+    stat, p_value = kruskal(*[acc_out[col] for col in ["KNN", "DT", "NB", "SVM", "MLP"]])
     print(f"\tKruskal-Wallis H-statistic: {stat}, p-value: {p_value}")
 
     if p_value < 0.05:
-        print("\tHá diferenças estatisticamente significativas entre os modelos (p < 0.05)")
+        print("\t\tHá diferenças estatisticamente significativas entre os classificadores (p < 0.05)")
     else:
-        print("\tNão há diferenças estatisticamente significativas entre os modelos (p >= 0.05)")
+        print("\t\tNão há diferenças estatisticamente significativas entre os classificadores (p >= 0.05)")
 
-    # Teste de Mann-Whitney U para todos os pares de modelos
-    print("\nMann-Whitney U Test:")
+    # Teste de Mann-Whitney U para todos os pares de classificadores
+    print("\nMann-Whitney U Test para Classificadores:")
 
-    for i in range(len(MODELS)):
-        for j in range(i + 1, len(MODELS)):
-            stat, p_value = mannwhitneyu(acc_out[MODELS[i]], acc_out[MODELS[j]])
-            print(f"\t{MODELS[i]} vs {MODELS[j]}: U-statistic: {stat}, p-value: {p_value}")
+    classifiers = ["KNN", "DT", "NB", "SVM", "MLP"]
+    for i in range(len(classifiers)):
+        for j in range(i + 1, len(classifiers)):
+            stat, p_value = mannwhitneyu(acc_out[classifiers[i]], acc_out[classifiers[j]])
+            print(f"\t{classifiers[i]} vs {classifiers[j]}: U-statistic: {stat}, p-value: {p_value}")
 
             if p_value < 0.05:
-                print(f"\tHá diferenças estatisticamente significativas entre {MODELS[i]} e {MODELS[j]} (p < 0.05)")
+                print(f"\t\tHá diferenças estatisticamente significativas entre {classifiers[i]} e {classifiers[j]} (p < 0.05)")
             else:
-                print(f"\tNão há diferenças estatisticamente significativas entre {MODELS[i]} e {MODELS[j]} (p >= 0.05)")
+                print(f"\t\tNão há diferenças estatisticamente significativas entre {classifiers[i]} e {classifiers[j]} (p >= 0.05)")
 
-if __name__ == "__main__":
-    train = False
-    if len(sys.argv) > 1:
-        for arg in sys.argv:
-            if arg == "-t":
-                train = True
-    acc_out = None
-    if train:
-        acc_out = train_models()
+# Avaliar os classificadores
+eval_classifiers(acc_out)
+
+# Avaliar os métodos de votação
+def eval_voting_methods(acc_voting_out):
+    print("Acurácia dos Métodos de Votação")
+    print(acc_voting_out)
+
+    mean_acc_voting = acc_voting_out.mean()
+    std_acc_voting = acc_voting_out.std()
+
+    print("\nMédia de Acurácia dos Métodos de Votação:")
+    print(mean_acc_voting)
+    
+    print("\nDesvio Padrão das Acurácias dos Métodos de Votação:")
+    print(std_acc_voting)
+
+    # Teste de Kruskal-Wallis para métodos de votação
+    print("\nKruskal-Wallis Test para Métodos de Votação:")
+    stat, p_value = kruskal(*[acc_voting_out[col] for col in ["Soma", "Voto Majoritário", "Borda Count"]])
+    print(f"\tKruskal-Wallis H-statistic: {stat}, p-value: {p_value}")
+
+    if p_value < 0.05:
+        print("\t\tHá diferenças estatisticamente significativas entre os métodos de votação (p < 0.05)")
     else:
-        acc_out = load_models("acc_out_20_exec.csv")
+        print("\t\tNão há diferenças estatisticamente significativas entre os métodos de votação (p >= 0.05)")
 
-    eval_models(acc_out)
+    # Teste de Mann-Whitney U para todos os pares de métodos de votação
+    print("\nMann-Whitney U Test para Métodos de Votação:")
 
-    try:
-        if input("Show graphs? (y/N) ").lower().strip() == "y":
-            plt.show()
-    except (EOFError, KeyboardInterrupt):
-        pass
+    voting_methods = ["Soma", "Voto Majoritário", "Borda Count"]
+    for i in range(len(voting_methods)):
+        for j in range(i + 1, len(voting_methods)):
+            stat, p_value = mannwhitneyu(acc_voting_out[voting_methods[i]], acc_voting_out[voting_methods[j]])
+            print(f"\t{voting_methods[i]} vs {voting_methods[j]}: U-statistic: {stat}, p-value: {p_value}")
+
+            if p_value < 0.05:
+                print(f"\t\tHá diferenças estatisticamente significativas entre {voting_methods[i]} e {voting_methods[j]} (p < 0.05)")
+            else:
+                print(f"\t\tNão há diferenças estatisticamente significativas entre {voting_methods[i]} e {voting_methods[j]} (p >= 0.05)")
+
+# Avaliar os métodos de votação
+eval_voting_methods(acc_voting_out)
